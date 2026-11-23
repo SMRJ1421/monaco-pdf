@@ -40,6 +40,10 @@
       document.getElementById('update-text').textContent = 'Nueva versión ' + rel.tag_name + ' disponible';
       document.getElementById('update-link').href = apk.browser_download_url;
       document.getElementById('update').style.display = 'flex';
+      // ventana de alerta (además de la barra, por si la cierra)
+      setTimeout(() => {
+        if (confirm('Hay una nueva versión de Monaco PDF (' + rel.tag_name + ').\n¿Descargar la actualización ahora?')) location.href = apk.browser_download_url;
+      }, 500);
     })
     .catch(() => {});
 </script>
