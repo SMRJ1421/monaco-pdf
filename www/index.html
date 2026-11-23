@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
+<meta name="theme-color" content="#1e1e1e">
+<link rel="manifest" href="manifest.json">
+<title>Monaco PDF</title>
+<style>
+  body { margin: 0; background: #1e1e1e; color: #fff; font-family: system-ui, sans-serif; }
+  header { position: sticky; top: 0; display: flex; gap: 8px; align-items: center; padding: 10px; padding-top: max(10px, env(safe-area-inset-top)); background: #111; }
+  label { background: #e53935; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
+  input { display: none; }
+  #name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; opacity: .8; }
+  #pages canvas { display: block; width: 100%; margin: 0 auto 8px; background: #fff; }
+  #empty { text-align: center; margin-top: 40vh; opacity: .6; }
+  #update { display: none; align-items: center; gap: 8px; padding: 10px; background: #1565c0; font-size: 14px; }
+  #update a { margin-left: auto; background: #fff; color: #1565c0; padding: 8px 12px; border-radius: 8px; text-decoration: none; font-weight: bold; }
+</style>
+</head>
+<body>
+<header>
+  <label>Abrir PDF<input id="file" type="file" accept="application/pdf"></label>
+  <span id="name"></span>
+</header>
+<div id="update"><span id="update-text"></span><a id="update-link">Descargar</a></div>
+<script src="version.js"></script>
+<script>
+  // Aviso de actualización: compara con la última Release de GitHub (sin internet, no muestra nada)
+  fetch('https://api.github.com/repos/SMRJ1421/monaco-pdf/releases/latest')
+    .then((r) => r.ok ? r.json() : null)
+    .then((rel) => {
+      if (!rel) return;
+      const num = (v) => String(v).replace(/^v/, '').split('.').map(Number);
+      const [a, b] = [num(rel.tag_name), num(window.APP_VERSION)];
+      let newer = false;
+      for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) { newer = (a[i] || 0) > (b[i] || 0); break; } }
+      const apk = rel.assets?.find((x) => x.name.endsWith('.apk'));
+      if (!newer || !apk) return;
+      document.getElementById('update-text').textContent = 'Nueva versión ' + rel.tag_name + ' disponible';
+      document.getElementById('update-link').href = apk.browser_download_url;
+      document.getElementById('update').style.display = 'flex';
+    })
+    .catch(() => {});
+</script>
+<p id="empty">Toca «Abrir PDF» para elegir un archivo</p>
+<div id="pages"></div>
+
+<script>
+  // muestra cualquier error en pantalla (si no, la app falla en silencio)
+  window.onerror = (m) => { document.getElementById('pages').textContent = 'Error: ' + m; };
+  window.onunhandledrejection = (e) => { document.getElementById('pages').textContent = 'Error: ' + (e.reason?.message || e.reason); };
+</script>
+<!-- runtime de Capacitor: trae registerPlugin (sin bundler, el puente nativo solo no lo incluye) -->
+<script src="capacitor.js"></script>
+<script type="module">
+  import * as pdfjs from './pdf.min.mjs';
+  pdfjs.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs';
+
+  const pages = document.getElementById('pages');
+  document.getElementById('file').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (f) show(await f.arrayBuffer(), f.name);
+  };
+
+  // PDF recibido desde "Abrir con" de Android
+  const C = window.Capacitor;
+  const fail = (msg) => { pages.textContent = msg; };
+  if (C?.isNativePlatform?.()) {
+    if (typeof C.registerPlugin !== 'function') {
+      fail('Error del puente nativo: no se cargó capacitor.js');
+    } else {
+      const plug = C.registerPlugin('PdfIntent');
+      const openNative = async ({ path, name, error } = {}) => {
+        if (error) return fail('No se pudo leer el archivo: ' + error);
+        if (!path) return;
+        try {
+          const res = await fetch(C.convertFileSrc(path));
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          show(await res.arrayBuffer(), name);
+        } catch (e) {
+          fail('No se pudo cargar el PDF recibido: ' + e.message);
+        }
+      };
+      plug.addListener('pdf', openNative);
+      plug.getPending().then(openNative).catch((e) => fail('Error del puente nativo: ' + e.message));
+    }
+  }
+
+  async function show(data, name) {
+    document.getElementById('name').textContent = name;
+    document.getElementById('empty')?.remove();
+    pages.innerHTML = '';
+    try {
+      const pdf = await pdfjs.getDocument({ data }).promise;
+      const scale = (innerWidth / 600) * devicePixelRatio; // x2 para que siga nítido al hacer zoom
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale: Math.min(Math.max(scale * 2, 2), 4) });
+        const c = document.createElement('canvas');
+        c.width = vp.width; c.height = vp.height;
+        pages.appendChild(c);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      }
+    } catch (err) {
+      pages.textContent = 'No se pudo abrir el PDF: ' + err.message;
+    }
+  };
+</script>
+</body>
+</html>
+
