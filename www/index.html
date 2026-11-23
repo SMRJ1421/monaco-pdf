@@ -38,11 +38,36 @@
       const apk = rel.assets?.find((x) => x.name.endsWith('.apk'));
       if (!newer || !apk) return;
       document.getElementById('update-text').textContent = 'Nueva versión ' + rel.tag_name + ' disponible';
-      document.getElementById('update-link').href = apk.browser_download_url;
+      const link = document.getElementById('update-link');
+      const text = document.getElementById('update-text');
+      link.href = apk.browser_download_url;
+      link.textContent = 'Actualizar';
       document.getElementById('update').style.display = 'flex';
-      // ventana de alerta (además de la barra, por si la cierra)
+
+      // Dentro de la app: descarga con el plugin nativo y abre el instalador
+      const C = window.Capacitor;
+      let busy = false;
+      const update = async () => {
+        if (!C?.isNativePlatform?.()) return (location.href = apk.browser_download_url);
+        if (busy) return;
+        busy = true;
+        const plug = C.registerPlugin('PdfIntent');
+        const h = await plug.addListener('progress', ({ percent }) => {
+          text.textContent = percent >= 0 ? 'Descargando… ' + percent + '%' : 'Descargando…';
+        });
+        try {
+          await plug.downloadUpdate({ url: apk.browser_download_url });
+          text.textContent = 'Instala la actualización en la ventana de Android';
+        } catch (e) {
+          text.textContent = String(e.message).replace(/^PERMISO: /, '');
+        } finally {
+          h.remove();
+          busy = false;
+        }
+      };
+      link.onclick = (e) => { e.preventDefault(); update(); };
       setTimeout(() => {
-        if (confirm('Hay una nueva versión de Monaco PDF (' + rel.tag_name + ').\n¿Descargar la actualización ahora?')) location.href = apk.browser_download_url;
+        if (confirm('Hay una nueva versión de Monaco PDF (' + rel.tag_name + ').\n¿Actualizar ahora?')) update();
       }, 500);
     })
     .catch(() => {});

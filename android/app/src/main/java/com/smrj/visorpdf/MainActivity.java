@@ -74,5 +74,53 @@ public class MainActivity extends BridgeActivity {
         }
 
         void emit(JSObject data) { notifyListeners("pdf", data); }
+
+        // Descarga el APK de la actualización y abre el instalador de Android (sin navegador)
+        @PluginMethod
+        public void downloadUpdate(PluginCall call) {
+            String url = call.getString("url");
+            if (url == null || !url.startsWith("https://github.com/SMRJ1421/monaco-pdf/")) {
+                call.reject("URL de actualización no válida");
+                return;
+            }
+            android.app.Activity act = getActivity();
+            if (android.os.Build.VERSION.SDK_INT >= 26 && !act.getPackageManager().canRequestPackageInstalls()) {
+                act.startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + act.getPackageName())));
+                call.reject("PERMISO: activa «Permitir de esta fuente» y vuelve a tocar Actualizar");
+                return;
+            }
+            new Thread(() -> {
+                File apk = new File(act.getCacheDir(), "actualizacion.apk");
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    c.setInstanceFollowRedirects(true); // GitHub redirige al archivo real
+                    int total = c.getContentLength();
+                    try (InputStream in = c.getInputStream(); OutputStream os = new FileOutputStream(apk)) {
+                        byte[] buf = new byte[65536];
+                        int n, done = 0, last = -1;
+                        while ((n = in.read(buf)) > 0) {
+                            os.write(buf, 0, n);
+                            done += n;
+                            int pct = total > 0 ? done * 100 / total : -1;
+                            if (pct != last) {
+                                last = pct;
+                                JSObject p = new JSObject();
+                                p.put("percent", pct);
+                                notifyListeners("progress", p);
+                            }
+                        }
+                    }
+                    Uri uri = androidx.core.content.FileProvider.getUriForFile(act, act.getPackageName() + ".fileprovider", apk);
+                    Intent i = new Intent(Intent.ACTION_VIEW);
+                    i.setDataAndType(uri, "application/vnd.android.package-archive");
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    act.startActivity(i);
+                    call.resolve();
+                } catch (Exception e) {
+                    call.reject("Falló la descarga: " + e.getMessage());
+                }
+            }).start();
+        }
     }
 }
