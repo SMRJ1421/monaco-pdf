@@ -1,4 +1,4 @@
-# Publica una versión nueva de Monaco PDF en GitHub.
+﻿# Publica una versión nueva de Monaco PDF en GitHub.
 # Uso: .\publicar.ps1 1.0.1 "Qué cambió"
 param([Parameter(Mandatory)][string]$Version, [string]$Notas = "Versión $Version")
 $ErrorActionPreference = 'Stop'
